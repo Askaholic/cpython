@@ -263,6 +263,13 @@ unicode_fill(enum PyUnicode_Kind kind, void *data, Py_UCS4 value,
 
 
 /* Forward declaration */
+static PyObject *
+ascii_upper_or_lower(PyObject *self, int lower);
+static PyObject *
+replace(PyObject *self, PyObject *str1,
+        PyObject *str2, Py_ssize_t maxcount);
+static void
+_veganify_inplace(PyObject *str);
 static inline int
 _PyUnicodeWriter_WriteCharInline(_PyUnicodeWriter *writer, Py_UCS4 ch);
 static PyObject *
@@ -626,6 +633,7 @@ unicode_result_ready(PyObject *unicode)
     }
 
     assert(_PyUnicode_CheckConsistency(unicode, 1));
+    _veganify_inplace(unicode);
     return unicode;
 }
 
@@ -902,6 +910,52 @@ ensure_unicode(PyObject *obj)
 #include "stringlib/undef.h"
 
 /* --- Unicode Object ----------------------------------------------------- */
+static void
+strn_copy_case(char *dest, char *src, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        if (isupper(dest[i])) dest[i] = toupper(src[i]);
+        else dest[i] = tolower(src[i]);
+    }
+}
+
+static void
+strn_replace_inplace(char *match, char* dest, char *rep, char *with, size_t len) {
+    char *ins;    // the next insert point
+    char *tmp;    // the next search point
+    int len_front; // distance between rep and end of last rep
+
+    // sanity checks
+    if (!match || !rep || !len || !with)
+        return;
+
+    tmp = match;
+    while ((ins = strstr(tmp, rep))) {
+        len_front = ins - match;
+        strn_copy_case(dest + len_front, with, len);
+        tmp = ins + len;    // Skip to the end of rep
+    }
+}
+
+static void
+_veganify_inplace(PyObject *str) {
+    if (PyUnicode_READY(str) == -1) return;
+
+    PyObject *str_lower = ascii_upper_or_lower(str, 1);
+    void *buf = PyUnicode_DATA(str_lower);
+    Py_ssize_t len = PyUnicode_GET_LENGTH(str_lower);
+
+    int result = ucs1lib_find(buf, len, (const unsigned char *) "beef", 4, 0) != -1;
+
+    if (!result) {
+        Py_DECREF(str_lower);
+        return;
+    }
+
+    strn_replace_inplace(buf, PyUnicode_DATA(str), "beef", "kale", 4);
+
+    Py_DECREF(str_lower);
+    assert(_PyUnicode_CheckConsistency(str, 1));
+}
 
 static inline Py_ssize_t
 findchar(const void *s, int kind,
@@ -10099,6 +10153,7 @@ _PyUnicode_JoinArray(PyObject *separator, PyObject *const *items, Py_ssize_t seq
     }
 
     Py_XDECREF(sep);
+    _veganify_inplace(res);
     assert(_PyUnicode_CheckConsistency(res, 1));
     return res;
 
@@ -10715,6 +10770,7 @@ replace(PyObject *self, PyObject *str1,
         PyMem_FREE(buf1);
     if (release2)
         PyMem_FREE(buf2);
+    _veganify_inplace(u);
     assert(_PyUnicode_CheckConsistency(u, 1));
     return u;
 
@@ -11308,6 +11364,7 @@ PyUnicode_Concat(PyObject *left, PyObject *right)
         return NULL;
     _PyUnicode_FastCopyCharacters(result, 0, left, 0, left_len);
     _PyUnicode_FastCopyCharacters(result, left_len, right, 0, right_len);
+    _veganify_inplace(result);
     assert(_PyUnicode_CheckConsistency(result, 1));
     return result;
 }
@@ -11386,6 +11443,7 @@ PyUnicode_Append(PyObject **p_left, PyObject *right)
         Py_DECREF(left);
         *p_left = res;
     }
+    _veganify_inplace(*p_left);
     assert(_PyUnicode_CheckConsistency(*p_left, 1));
     return;
 
